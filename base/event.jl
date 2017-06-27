@@ -2,6 +2,32 @@
 
 ## condition variables
 
+if JULIA_PARTR
+
+Condition() = ccall(:jl_condition_new, Ref{Condition}, ())
+wait(c::Condition) = ccall(:jl_task_wait, Void, (Condition,), c)
+notify(c::Condition) == ccall(:jl_task_notify, Void, (Condition,), c)
+notify(c::Condition, arg, all, error) = notify(c) # TODO: do we need arg, all? have to figure out how to do error
+notify_error(c::Condition, err) = notify(c, err, true, true)
+n_waiters(c::Condition) = 0 # TODO: do we need this?
+
+yield() = ccall(:jl_task_yield, Void, (Cint,), 1)
+wait() = yield()
+wait(t::Task) = ccall(:jl_task_sync, Any, (Ref{Task},), Ref{t})
+schedule(t::Task) = ccall(:jl_task_spawn, Cint, (Ref{Task},Int8,Int8), Ref{t}, 0, 0)
+macro schedule(expr)
+    thunk = esc(:(()->($expr)))
+    :(schedule(Task($thunk)))
+end
+schedule(t::Task, arg; error=false) = schedule(t) # TODO: do we need arg? have to figure out how to do error
+schedule_and_wait(t::Task, arg=nothing) = schedule(t); wait(t) # TODO: arg?
+yield(t::Task, @nospecialize x = nothing) = yield() # TODO: cannot yieldto anymore
+yieldto(t::Task, @nospecialize x = nothing) = yield() # TODO: cannot yieldto anymore
+try_yieldto(undo, reftask::Ref{Task}) = yield() # TODO: cannot yieldto anymore
+throwto(t::Task, @nospecialize exc) = () # TODO: how to throw to?
+
+else # !JULIA_PARTR
+
 """
     Condition()
 
@@ -274,12 +300,18 @@ function wait()
     # unreachable
 end
 
+end # !JULIA_PARTR
+
 if Sys.iswindows()
     pause() = ccall(:Sleep, stdcall, Cvoid, (UInt32,), 0xffffffff)
 else
     pause() = ccall(:pause, Cvoid, ())
 end
 
+
+# TODO
+if JULIA_PARTR
+else
 
 ## async event notifications
 

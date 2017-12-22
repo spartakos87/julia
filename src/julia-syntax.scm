@@ -1593,29 +1593,35 @@
 ;; If false, this will try to warn only for uses of the last value after the loop.
 (define *warn-all-loop-vars* #f)
 
-(define (expand-for while lhs X body)
+(define (expand-for first lhs X body)
   ;; (for (= lhs X) body)
   (let* ((coll   (make-ssavalue))
-         (state  (gensy))
+         (state  (make-ssavalue))
+         (next   (gensy))
          (outer? (and (pair? lhs) (eq? (car lhs) 'outer)))
-         (lhs    (if outer? (cadr lhs) lhs)))
+         (lhs    (if outer? (cadr lhs) lhs))
+         (test   `(call (|.| (core Intrinsics) 'not_int) (call (core ===) ,next (null))))
+         (cont   `(block
+                   (= ,next (call (top iterate) ,coll ,state))))
+         (body   `(block
+                   ;; NOTE: enable this to force loop-local var
+                   #;,@(map (lambda (v) `(local ,v)) (lhs-vars lhs))
+                   ,@(if (not outer?)
+                         (map (lambda (v) `(warn-if-existing ,v)) (lhs-vars lhs))
+                         '())
+                   ,(lower-tuple-assignment (list lhs state) next)
+                   ,body))
+         (loop    `(_while
+                    ,(expand-forms test)
+                    (block
+                     (break-block loop-cont
+                                      (scope-block ,(blockify (expand-forms body))))
+                     ,(expand-forms cont)))))
     `(block (= ,coll ,(expand-forms X))
-            (= ,state (call (top start) ,coll))
-            ;; TODO avoid `local declared twice` error from this
-            ;;,@(if outer? `((local ,lhs)) '())
+            (= ,next (call (top iterate) ,coll))
             ,@(if outer? `((require-existing-local ,lhs)) '())
-            ,(expand-forms
-              `(,while
-                (call (top not_int) (call (core typeassert) (call (top done) ,coll ,state) (core Bool)))
-                (block
-                 ;; NOTE: enable this to force loop-local var
-                 #;,@(map (lambda (v) `(local ,v)) (lhs-vars lhs))
-                 ,@(if (not outer?)
-                       (map (lambda (v) `(warn-if-existing ,v)) (lhs-vars lhs))
-                       '())
-                 ,(lower-tuple-assignment (list lhs state)
-                                          `(call (top next) ,coll ,state))
-                 ,body))))))
+            ,(if first `(break-block loop-exit ,loop) loop))))
+
 
 ;; convert an operator parsed as (op a b) to (call op a b)
 (define (syntactic-op-to-call e)
@@ -2034,13 +2040,12 @@
                        (st  (gensy)))
                   `(block
                     ,@ini
-                    (= ,st (call (top start) ,xx))
                     ,.(map (lambda (i lhs)
                              (expand-forms
                               (lower-tuple-assignment
                                (list lhs st)
-                               `(call (top indexed_next)
-                                      ,xx ,(+ i 1) ,st))))
+                               `(call (top indexed_iterate)
+                                      ,xx ,(+ i 1) ,.(if (eq? i 0) '() `(,st))))))
                            (iota (length lhss))
                            lhss)
                     (unnecessary ,xx))))))
@@ -2254,7 +2259,7 @@
                             (cdr (cadr e))
                             (list (cadr e))))
                 (first  #t))
-       (expand-for (if first 'while 'inner-while)
+       (expand-for first
                    (cadr (car ranges))
                    (caddr (car ranges))
                    (if (null? (cdr ranges))
@@ -2424,32 +2429,25 @@
         (ri        (gensy))
         (oneresult (make-ssavalue))
         (lengths   (map (lambda (x) (make-ssavalue)) ranges))
-        (states    (map (lambda (x) (gensy)) ranges))
         (rv        (map (lambda (x) (make-ssavalue)) ranges)))
 
     ;; construct loops to cycle over all dimensions of an n-d comprehension
-    (define (construct-loops ranges rv states lengths)
+    (define (construct-loops ranges rv lengths)
       (if (null? ranges)
           `(block (= ,oneresult ,expr)
                   (inbounds true)
                   (call (top setindex!) ,result ,oneresult ,ri)
                   (inbounds pop)
                   (= ,ri (call (top add_int) ,ri 1)))
-          `(block
-            (= ,(car states) (call (top start) ,(car rv)))
-            (while (call (top not_int) (call (core typeassert) (call (top done) ,(car rv) ,(car states)) (core Bool)))
-                   (scope-block
-                   (block
-                    (= (tuple ,(cadr (car ranges)) ,(car states))
-                       (call (top next) ,(car rv) ,(car states)))
-                    ;; *** either this or force all for loop vars local
-                    ,.(map (lambda (r) `(local ,r))
-                           (lhs-vars (cadr (car ranges))))
-                    ,(construct-loops (cdr ranges) (cdr rv) (cdr states) (cdr lengths))))))))
+          (expand-for #t (cadr (car ranges)) (car rv)
+            `(block
+                ;; *** either this or force all for loop vars local
+                ,.(map (lambda (r) `(local ,r))
+                  (lhs-vars (cadr (car ranges))))
+                ,(construct-loops (cdr ranges) (cdr rv) (cdr lengths))))))
 
     ;; Evaluate the comprehension
     `(block
-      ,.(map (lambda (v) `(local ,v)) states)
       (local ,ri)
       ,.(map (lambda (v r) `(= ,v ,(caddr r))) rv ranges)
       ,.(map (lambda (v r) `(= ,v (call (top length) ,r))) lengths rv)
@@ -2457,7 +2455,7 @@
        (block
         (= ,result (call (curly Array ,atype ,(length lengths)) uninitialized ,@lengths))
         (= ,ri 1)
-        ,(construct-loops (reverse ranges) (reverse rv) states (reverse lengths))
+        ,(construct-loops (reverse ranges) (reverse rv) (reverse lengths))
         ,result)))))
 
 (define (lhs-vars e)

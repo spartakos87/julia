@@ -5993,3 +5993,20 @@ g25907a(x) = x[1]::Integer
 @test g25907a(Union{Int, UInt, Nothing}[1]) === 1
 g25907b(x) = x[1]::Complex
 @test g25907b(Union{Complex{Int}, Complex{UInt}, Nothing}[1im]) === 1im
+
+# The old iteration protocol shims
+struct DelegateIterator{T}
+    x::T
+end
+Base.start(itr::DelegateIterator) = start(itr.x)
+Base.next(itr::DelegateIterator, state) = next(itr.x, state)
+Base.done(itr::DelegateIterator, state) = done(itr.x, state)
+let A = [1], B = [], C = DelegateIterator([1]), D = DelegateIterator([]), E = Any[1,"abc"]
+    @test next(A, start(A))[1] == 1
+    @test done(A, next(A, start(A))[2])
+    @test done(B, start(B))
+    @test next(C, start(C))[1] == 1
+    @test done(C, next(C, start(C))[2])
+    @test done(D, start(D))
+    @test next(E, next(E, start(E))[2])[1] == "abc"
+end

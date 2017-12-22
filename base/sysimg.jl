@@ -283,6 +283,9 @@ end
     end
 end
 
+# missing values
+include("missing.jl")
+
 # version
 include("version.jl")
 
@@ -428,9 +431,6 @@ include("client.jl")
 
 # statistics
 include("statistics.jl")
-
-# missing values
-include("missing.jl")
 
 # worker threads
 include("threadcall.jl")

@@ -150,7 +150,11 @@ ambs = detect_ambiguities(Ambig5)
 
 # Test that Core and Base are free of ambiguities
 # not using isempty so this prints more information when it fails
-@test detect_ambiguities(Core, Base; imported=true, recursive=true, ambiguous_bottom=false) == []
+@test filter(detect_ambiguities(Core, Base; imported=true, recursive=true, ambiguous_bottom=false)) do meths
+    # start, next, done fallbacks have ambiguities, but the iteration
+    # protocol prevents those from arising in practice.
+    !(meths[1].name in (:start, :next, :done))
+end == []
 # some ambiguities involving Union{} type parameters are expected, but not required
 @test !isempty(detect_ambiguities(Core, Base; imported=true, ambiguous_bottom=true))
 

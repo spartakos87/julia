@@ -982,4 +982,14 @@ include(joinpath("special", "gamma.jl"))
 include(joinpath("special", "rem_pio2.jl"))
 include(joinpath("special", "log.jl"))
 
+# `missing` definitions for functions in this module
+for f in (:(abs), :(abs2), :(sign),
+          :(acos), :(acosh), :(asin), :(asinh), :(atan), :(atanh),
+          :(sin), :(sinh), :(cos), :(cosh), :(tan), :(tanh),
+          :(exp), :(exp2), :(expm1), :(log), :(log10), :(log1p),
+          :(log2), :(exponent), :(sqrt), :(gamma), :(lgamma),
+          :(iseven), :(ispow2))
+    @eval $(f)(::Missing) = missing
+end
+
 end # module

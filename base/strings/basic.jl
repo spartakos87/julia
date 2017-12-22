@@ -22,7 +22,7 @@ about strings:
 
 Some string functions that extract code units, characters or substrings from
 strings error if you pass them out-of-bounds or invalid string indices. This
-includes `codeunit(s, i)`, `s[i]`, and `next(s, i)`. Functions that do string
+includes `codeunit(s, i)` and `s[i]`. Functions that do string
 index arithmetic take a more relaxed approach to indexing and give you the
 closest valid string index when in-bounds, or when out-of-bounds, behave as if
 there were an infinite number of characters padding each side of the string.
@@ -95,7 +95,7 @@ In order for `isvalid(s, i)` to be an O(1) function, the encoding of `s` must be
 [self-synchronizing](https://en.wikipedia.org/wiki/Self-synchronizing_code) this
 is a basic assumption of Julia's generic string support.
 
-See also: [`getindex`](@ref), [`next`](@ref), [`thisind`](@ref),
+See also: [`getindex`](@ref), [`iterate`](@ref), [`thisind`](@ref),
 [`nextind`](@ref), [`prevind`](@ref), [`length`](@ref)
 
 # Examples
@@ -130,8 +130,7 @@ be iterated, yielding a sequences of characters. If `i` is out of bounds in `s`
 then a bounds error is raised. The `next` function, as part of the iteration
 protocoal may assume that `i` is the start of a character in `s`.
 
-See also: [`getindex`](@ref), [`start`](@ref), [`done`](@ref),
-[`checkbounds`](@ref)
+See also: [`getindex`](@ref), [`checkbounds`](@ref)
 """
 @propagate_inbounds next(s::AbstractString, i::Integer) = typeof(i) === Int ?
     throw(MethodError(next, (s, i))) : next(s, Int(i))
@@ -139,7 +138,7 @@ See also: [`getindex`](@ref), [`start`](@ref), [`done`](@ref),
 ## basic generic definitions ##
 
 start(s::AbstractString) = 1
-done(s::AbstractString, i::Integer) = i > ncodeunits(s)
+done(s::AbstractString, i::Integer=1) = i > ncodeunits(s)
 eltype(::Type{<:AbstractString}) = Char
 sizeof(s::AbstractString) = ncodeunits(s) * sizeof(codeunit(s))
 firstindex(s::AbstractString) = 1
@@ -646,9 +645,7 @@ size(s::CodeUnits) = (length(s),)
 strides(s::CodeUnits) = (1,)
 @propagate_inbounds getindex(s::CodeUnits, i::Int) = codeunit(s.s, i)
 IndexStyle(::Type{<:CodeUnits}) = IndexLinear()
-start(s::CodeUnits) = 1
-next(s::CodeUnits, i) = (@_propagate_inbounds_meta; (s[i], i+1))
-done(s::CodeUnits, i) = (@_inline_meta; i == length(s)+1)
+iterate(s::CodeUnits, i=1) = (@_propagate_inbounds_meta; i == length(s)+1 ? nothing : (s[i], i+1))
 
 write(io::IO, s::CodeUnits) = write(io, s.s)
 

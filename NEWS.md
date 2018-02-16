@@ -1061,7 +1061,11 @@ Deprecated or removed
   * The fallback method `^(x, p::Integer)` is deprecated. If your type relied on this definition,
     add a method such as `^(x::MyType, p::Integer) = Base.power_by_squaring(x, p)` ([#23332]).
 
-  * `wait` and `fetch` on `Task` now resemble the interface of `Future`
+  * `wait` and `fetch` on `Task` now resemble the interface of `Future`.
+
+  * `showcompact(io, x...)` has been deprecated in favor of
+    `show(IOContext(io, :compact => true), x...)` ([#26080]).
+    Use `sprint(show, x..., context=:compact => true)` instead of `sprint(showcompact, x...)`.
 
 Command-line option changes
 ---------------------------
@@ -1324,3 +1328,4 @@ Command-line option changes
 [#25745]: https://github.com/JuliaLang/julia/issues/25745
 [#25896]: https://github.com/JuliaLang/julia/issues/25896
 [#25998]: https://github.com/JuliaLang/julia/issues/25998
+[#26080]: https://github.com/JuliaLang/julia/issues/26080

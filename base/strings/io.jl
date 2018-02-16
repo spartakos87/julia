@@ -69,15 +69,21 @@ println(io::IO, xs...) = print(io, xs..., '\n')
 ## conversion of general objects to strings ##
 
 """
-    sprint(f::Function, args...)
+    sprint(f::Function, args...; context=nothing, sizehint::Integer=0)
 
 Call the given function with an I/O stream and the supplied extra arguments.
 Everything written to this I/O stream is returned as a string.
+`context` can be either an [`IOContext`](@ref) whose properties will be used,
+or a `Pair` specifying a property and its value. `sizehint` suggests the capacity
+of the buffer (in bytes).
 
 # Examples
 ```jldoctest
-julia> sprint(showcompact, 66.66666)
+julia> sprint(show, 66.66666; context=:compact => true)
 "66.6667"
+
+julia> sprint(showerror, BoundsError([1], 100))
+"BoundsError: attempt to access 1-element Array{Int64,1} at index [100]"
 ```
 """
 function sprint(f::Function, args...; context=nothing, sizehint::Integer=0)

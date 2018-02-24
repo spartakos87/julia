@@ -2,6 +2,7 @@
 
 ## condition variables
 
+#=
 if JULIA_PARTR
 
 Condition() = ccall(:jl_condition_new, Ref{Condition}, ())
@@ -27,7 +28,7 @@ try_yieldto(undo, reftask::Ref{Task}) = yield() # TODO: cannot yieldto anymore
 throwto(t::Task, @nospecialize exc) = () # TODO: how to throw to?
 
 else # !JULIA_PARTR
-
+=#
 """
     Condition()
 
@@ -300,7 +301,7 @@ function wait()
     # unreachable
 end
 
-end # !JULIA_PARTR
+#end # !JULIA_PARTR
 
 if Sys.iswindows()
     pause() = ccall(:Sleep, stdcall, Cvoid, (UInt32,), 0xffffffff)
@@ -308,10 +309,6 @@ else
     pause() = ccall(:pause, Cvoid, ())
 end
 
-
-# TODO
-if JULIA_PARTR
-else
 
 ## async event notifications
 

@@ -451,6 +451,19 @@ end
 
 # materialize dependency graphs as explicit environments
 
+function make_entry_point(path::String, name::String, uuid::UUID)
+    mkpath(dirname(path))
+    open(path, "w") do io
+        print(io, """
+        module $name
+        name = $(repr(name))
+        uuid = $(repr(string(uuid)))
+        end
+        """)
+    end
+end
+
+const depots = [mktempdir() for _ = 1:3]
 const envs = Dict{String,eltype(graphs)}()
 
 for (flat, root, roots, graph) in graphs
@@ -459,19 +472,28 @@ for (flat, root, roots, graph) in graphs
         all(KIND[i] == 2 for i in keys(graph)) || continue
     end
     dir = mktempdir()
-    envs[dir] = (flat, root, roots, graph)
+    paths = Dict{Int,String}()
+    envs[dir] = (flat, root, roots, graph, paths)
+    root_path = rand([false, true, joinpath("src", "$(randstring()).jl")])
 
     # generate project file
     open(joinpath(dir, "Project.toml"), "w") do io
         name, uuid, kind = L(root), UUIDS[root], KIND[root]
         kind != 0 && println(io, "name = ", repr(name))
         kind == 2 && println(io, "uuid = ", repr(string(uuid)))
+        root_path isa String && println(io, "path = ", repr(root_path))
         println(io, "[deps]")
         for (n, i) in roots
             i == root && continue
             @assert KIND[i] == 2
             println(io, "$n = ", repr(string(UUIDS[i])))
         end
+        # generate entry point
+        root_path == false && return
+        root_path == true && (root_path = joinpath("src", "$name.jl"))
+        root_path = joinpath(dir, root_path)
+        make_entry_point(root_path, name, uuid)
+        paths[root] = root_path
     end
 
     # count manifest entries
@@ -489,6 +511,25 @@ for (flat, root, roots, graph) in graphs
             name, uuid = L(i), UUIDS[i]
             println(io, "[[$name]]")
             println(io, "uuid = ", repr(string(uuid)))
+            if rand() < 2/3
+                sha1 = SHA1(rand(UInt8, 20))
+                println(io, "git-tree-sha1 = ", repr(string(sha1)))
+                path = joinpath(
+                    rand(depots), "packages",
+                    name, version_slug(uuid, sha1),
+                    "src", "$name.jl",
+                )
+                make_entry_point(path, name, uuid)
+                paths[i] = path # may get overwritten below
+            end
+            if rand() < 1/4
+                path = joinpath("deps", "$(randstring()).jl")
+                println(io, "path = ", repr(path))
+                path = joinpath(dir, path)
+                make_entry_point(path, name, uuid)
+                paths[i] = path # may overwrite path above
+            end
+            # neither can occur, i.e. no entry in paths
             deps = delete!(copy(deps), name)
             isempty(deps) && continue
             if all(counts[n] == 1 for n in keys(deps))
@@ -509,21 +550,15 @@ end
 for (flat, root, roots, graph) in graphs
     flat || continue
     dir = mktempdir()
-    envs[dir] = (flat, root, roots, graph)
+    paths = Dict{Int,String}()
+    envs[dir] = (flat, root, roots, graph, paths)
 
     for (name, i) in roots
         uuid, kind = UUIDS[i], KIND[i]
         # generate package entry point
         entry = joinpath(dir, name, "src", "$name.jl")
-        mkpath(dirname(entry))
-        open(entry, "w") do io
-            print(io, """
-            module $name
-            name = $(repr(name))
-            uuid = $(repr(string(uuid)))
-            end
-            """)
-        end
+        make_entry_point(entry, name, uuid)
+        paths[i] = entry
         kind == 0 && continue
         deps = delete!(copy(graph[i]), name)
         # generate project file
@@ -538,6 +573,8 @@ for (flat, root, roots, graph) in graphs
         end
     end
 end
+
+append!(empty!(DEPOT_PATH), depots)
 
 ## use generated environments to test package loading ##
 
@@ -567,13 +604,28 @@ function add_id!(ids::Vector{Pair{Int,PkgId}},
     return ids # no op
 end
 
-function test_identify(roots::Dict{String,Int}, graph::Dict{Int,Dict{String,Int}})
+function pkg_loc(
+    paths::Dict{Int,String},
+    ids::Union{Vector{Pair{Int,PkgId}}, Dict{Int,PkgId}},
+    id::Union{PkgId,Nothing},
+)
+    for (i, pkg) in ids
+        pkg == id && return get(paths, i, nothing)
+    end
+end
+
+function test_find(
+    roots::Dict{String,Int},
+    graph::Dict{Int,Dict{String,Int}},
+    paths::Dict{Int,String},
+)
     ids = Pair{Int,PkgId}[]
     # check & add named roots
     for name in NAMES
         id = identify_package(name)
         @test id ≊ pkg_id(roots, name)
         add_id!(ids, roots, name, id)
+        @test locate_package(id) == pkg_loc(paths, ids, id)
     end
     # add nodes reachable by uuid
     for (node, deps) in graph
@@ -589,6 +641,7 @@ function test_identify(roots::Dict{String,Int}, graph::Dict{Int,Dict{String,Int}
                 id = identify_package(where, name)
                 @test id ≊ pkg_id(deps, name)
                 add_id!(ids, deps, name, id)
+                @test locate_package(id) == pkg_loc(paths, ids, id)
             end
         end
     end
@@ -601,39 +654,38 @@ function test_identify(roots::Dict{String,Int}, graph::Dict{Int,Dict{String,Int}
             for name in NAMES
                 id = where.name == name ? where : nothing
                 @test identify_package(where, name) == id
+                @test locate_package(id) == pkg_loc(paths, ids, id)
             end
         end
     end
 end
 
-empty!(DEPOT_PATH)
-
 @testset "identify_package with one env in load path" begin
-    for (env, (_, _, roots, graph)) in envs
+    for (env, (_, _, roots, graph, paths)) in envs
         push!(empty!(LOAD_PATH), env)
-        test_identify(roots, graph)
+        test_find(roots, graph, paths)
     end
 end
 
-@testset "identify_package with two envs in load path" begin
+false && @testset "identify_package with two envs in load path" begin
     for x = false:true,
         (env1, (_, _, roots1, graph1)) in (x ? envs : rand(envs, 10)),
         (env2, (_, _, roots2, graph2)) in (x ? rand(envs, 10) : envs)
         push!(empty!(LOAD_PATH), env1, env2)
         roots = merge(roots2, roots1)
         graph = merge(graph2, graph1)
-        test_identify(roots, graph)
+        test_find(roots, graph)
     end
 end
 
-@testset "identify_package with three envs in load path" begin
+false && @testset "identify_package with three envs in load path" begin
     for (env1, (_, _, roots1, graph1)) in rand(envs, 10),
         (env2, (_, _, roots2, graph2)) in rand(envs, 10),
         (env3, (_, _, roots3, graph3)) in rand(envs, 10)
         push!(empty!(LOAD_PATH), env1, env2, env3)
         roots = merge(roots3, roots2, roots1)
         graph = merge(graph3, graph2, graph1)
-        test_identify(roots, graph)
+        test_find(roots, graph)
     end
 end
 
@@ -641,6 +693,9 @@ end
 
 for env in keys(envs)
     rm(env, force=true, recursive=true)
+end
+for depot in depots
+    rm(depot, force=true, recursive=true)
 end
 
 append!(empty!(DEPOT_PATH), saved_depot_path)

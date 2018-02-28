@@ -27,14 +27,13 @@ export BINDIR,
 
 import ..Base: show
 
+global BINDIR = ccall(:jl_get_julia_bindir, Any, ())
 """
     Sys.BINDIR
 
 A string containing the full path to the directory containing the `julia` executable.
 """
-BINDIR = ccall(:jl_get_julia_bindir, Any, ())
-
-_early_init() = global BINDIR = ccall(:jl_get_julia_bindir, Any, ())
+:BINDIR
 
 # helper to avoid triggering precompile warnings
 
@@ -79,11 +78,12 @@ const WORD_SIZE = Core.sizeof(Int) * 8
 
 function __init__()
     global CPU_CORES =
-        haskey(ENV,"JULIA_CPU_CORES") ? parse(Int,ENV["JULIA_CPU_CORES"]) :
+        haskey(ENV, "JULIA_CPU_CORES") ? parse(Int, ENV["JULIA_CPU_CORES"]) :
                                         Int(ccall(:jl_cpu_cores, Int32, ()))
     global SC_CLK_TCK = ccall(:jl_SC_CLK_TCK, Clong, ())
     global CPU_NAME = ccall(:jl_get_cpu_name, Ref{String}, ())
     global JIT = ccall(:jl_get_JIT, Ref{String}, ())
+    global BINDIR = ccall(:jl_get_julia_bindir, Any, ())
 end
 
 mutable struct UV_cpu_info_t
